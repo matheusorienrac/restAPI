@@ -113,10 +113,68 @@ func update(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	ID_int, ID_interr := strconv.Atoi(req.FormValue("ID"))
+
+	new_pkmn := Pokemon{
+		ID:       ID_int,
+		Name:     req.FormValue("Name"),
+		Type:     req.FormValue("Type"),
+		Category: req.FormValue("Category"),
+	}
+
+	// validate form values
+	if ID_interr != nil || new_pkmn.Name == "" || new_pkmn.Type == "" || new_pkmn.Category == "" {
+		http.Error(res, http.StatusText(400), http.StatusBadRequest)
+		return
+	}
+	q := `
+		UPDATE pokemons SET ID = $1, Name=$2, Type=$3, Category=$4 WHERE ID=$1;
+		`
+	result, err := db.Exec(q, new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category)
+	if err != nil {
+		panic(err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		panic(err)
+	} else if rows > 0 {
+		res.Write([]byte("Row updated successfully."))
+		fmt.Println("redirected to /pokedex")
+		http.Redirect(res, req, "/pokedex", http.StatusSeeOther)
+	} else {
+		res.Write([]byte("No rows were affected."))
+	}
+	return
+
 }
 
 func delete(res http.ResponseWriter, req *http.Request) {
+	if req.Method != "POST" {
+		http.Error(res, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	idToDelete := req.FormValue("ID")
+	q := `
+		DELETE FROM pokemons
+		WHERE ID = $1;
+	`
+	result, err := db.Exec(q, idToDelete)
+	if err != nil {
+		panic(err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		panic(err)
+	} else if rows > 0 {
+		res.Write([]byte(fmt.Sprintf("Row with ID: %s removed successfully.", idToDelete)))
+		http.Redirect(res, req, "/pokemons", http.StatusSeeOther)
+	} else {
+		res.Write([]byte("No rows were affected."))
+	}
+
 	return
+
 }
 func pokedex(res http.ResponseWriter, req *http.Request) {
 	rows, err := db.Query("SELECT * FROM pokemons;")
