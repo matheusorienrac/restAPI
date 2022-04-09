@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 
@@ -24,7 +25,11 @@ type Pokemon struct {
 
 func init() {
 	tpl = template.Must(template.ParseFiles("index.gohtml"))
-	db, err = sql.Open("postgres", "postgres://ash:PALLETTOWN@localhost/pallet?sslmode=disable")
+	postgreConnString, err := ioutil.ReadFile("postgreConnString")
+	if err != nil {
+		panic(err)
+	}
+	db, err = sql.Open("postgres", string(postgreConnString))
 	if err != nil {
 		panic(err)
 	}
@@ -50,7 +55,8 @@ func create(res http.ResponseWriter, req *http.Request) {
 		http.Error(res, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-	ID_int, _ := strconv.Atoi(req.FormValue("ID"))
+	ID_int, ID_interr := strconv.Atoi(req.FormValue("ID"))
+
 	new_pkmn := Pokemon{
 		ID:       ID_int,
 		Name:     req.FormValue("Name"),
@@ -58,7 +64,12 @@ func create(res http.ResponseWriter, req *http.Request) {
 		Category: req.FormValue("Category"),
 	}
 
-	fmt.Println(new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category)
+	// validate form values
+	if ID_interr != nil || new_pkmn.Name == "" || new_pkmn.Type == "" || new_pkmn.Category == "" {
+		http.Error(res, http.StatusText(400), http.StatusBadRequest)
+		return
+	}
+
 	q := `
 		INSERT INTO POKEMONS(id, name, type, category)
 		VALUES($1,$2,$3,$4);
@@ -68,6 +79,9 @@ func create(res http.ResponseWriter, req *http.Request) {
 		http.Error(res, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		res.Write([]byte(err.Error()))
 		return
+	} else {
+		res.Write([]byte("New record added succesfully."))
+		res.Write([]byte(fmt.Sprintf("ID: %d, Name: %s, Type: %s, Category: %s", new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category)))
 	}
 
 }
@@ -94,7 +108,10 @@ func read(res http.ResponseWriter, req *http.Request) {
 }
 
 func update(res http.ResponseWriter, req *http.Request) {
-	return
+	if req.Method != "POST" {
+		http.Error(res, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
 
 }
 
