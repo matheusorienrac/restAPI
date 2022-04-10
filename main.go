@@ -24,7 +24,7 @@ type Pokemon struct {
 }
 
 func init() {
-	tpl = template.Must(template.ParseFiles("index.gohtml"))
+	tpl = template.Must(template.ParseGlob("templates/*.gohtml"))
 	postgreConnString, err := ioutil.ReadFile("postgreConnString")
 	if err != nil {
 		panic(err)
@@ -37,22 +37,22 @@ func init() {
 }
 
 func main() {
-	http.HandleFunc("/pokemons/create", create)
-	http.HandleFunc("/pokemons/read", read)
-	http.HandleFunc("/pokemons/update", update)
-	http.HandleFunc("/pokemons/delete", delete)
+	http.HandleFunc("/pokedex/create", create)
+	http.HandleFunc("/pokedex/read", read)
+	http.HandleFunc("/pokedex/update", update)
+	http.HandleFunc("/pokedex/delete", delete)
 	http.HandleFunc("/pokedex", pokedex)
 	http.HandleFunc("/", index)
 	http.ListenAndServeTLS(":10443", "cert.pem", "key.pem", nil)
 }
 
 func index(res http.ResponseWriter, req *http.Request) {
-	tpl.ExecuteTemplate(res, "index.gohtml", "Tem nada aqui kkkkkkkkkkkkkk")
+	http.Redirect(res, req, "/pokedex", http.StatusSeeOther)
 }
 
 func create(res http.ResponseWriter, req *http.Request) {
 	if req.Method != "POST" {
-		http.Error(res, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		tpl.ExecuteTemplate(res, "create.gohtml", nil)
 		return
 	}
 	ID_int, ID_interr := strconv.Atoi(req.FormValue("ID"))
@@ -109,7 +109,7 @@ func read(res http.ResponseWriter, req *http.Request) {
 
 func update(res http.ResponseWriter, req *http.Request) {
 	if req.Method != "POST" {
-		http.Error(res, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		tpl.ExecuteTemplate(res, "update.gohtml", nil)
 		return
 	}
 
@@ -150,7 +150,7 @@ func update(res http.ResponseWriter, req *http.Request) {
 
 func delete(res http.ResponseWriter, req *http.Request) {
 	if req.Method != "POST" {
-		http.Error(res, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		tpl.ExecuteTemplate(res, "delete.gohtml", nil)
 		return
 	}
 
@@ -167,8 +167,8 @@ func delete(res http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		panic(err)
 	} else if rows > 0 {
+		http.Redirect(res, req, "/pokedex", http.StatusTemporaryRedirect)
 		res.Write([]byte(fmt.Sprintf("Row with ID: %s removed successfully.", idToDelete)))
-		http.Redirect(res, req, "/pokemons", http.StatusSeeOther)
 	} else {
 		res.Write([]byte("No rows were affected."))
 	}
@@ -177,7 +177,7 @@ func delete(res http.ResponseWriter, req *http.Request) {
 
 }
 func pokedex(res http.ResponseWriter, req *http.Request) {
-	rows, err := db.Query("SELECT * FROM pokemons;")
+	rows, err := db.Query("SELECT * FROM pokemons ORDER BY ID;")
 	if err != nil {
 		http.Error(res, http.StatusText(500), 500)
 	}
@@ -194,14 +194,6 @@ func pokedex(res http.ResponseWriter, req *http.Request) {
 	if err = rows.Err(); err != nil {
 		panic(err)
 	}
-
-	res.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(res).Encode(pkmns)
-	if err != nil {
-		panic(err)
-	}
-	for _, pkmn := range pkmns {
-		fmt.Println(pkmn.ID, pkmn.Name, pkmn.Type, pkmn.Category)
-	}
+	tpl.ExecuteTemplate(res, "pokedex.gohtml", pkmns)
 
 }
