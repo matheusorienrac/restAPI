@@ -93,7 +93,6 @@ func read(res http.ResponseWriter, req *http.Request) {
 	}
 
 	pkmn_id := req.FormValue("ID")
-	fmt.Println(pkmn_id)
 	row := db.QueryRow("SELECT * FROM pokemons WHERE id = $1", pkmn_id)
 	pkmn := Pokemon{}
 	err = row.Scan(&pkmn.ID, &pkmn.Name, &pkmn.Type, &pkmn.Category)
@@ -167,12 +166,10 @@ func delete(res http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		panic(err)
 	} else if rows > 0 {
-		http.Redirect(res, req, "/pokedex", http.StatusTemporaryRedirect)
-		res.Write([]byte(fmt.Sprintf("Row with ID: %s removed successfully.", idToDelete)))
+		http.Redirect(res, req, "/pokedex", http.StatusSeeOther)
 	} else {
-		res.Write([]byte("No rows were affected."))
+		res.Write([]byte("No rows were affected. Id doesn't exist."))
 	}
-
 	return
 
 }
