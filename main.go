@@ -10,6 +10,8 @@ import (
 	"strconv"
 
 	_ "github.com/lib/pq"
+	uuid "github.com/satori/go.uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var tpl *template.Template
@@ -21,6 +23,11 @@ type Pokemon struct {
 	Name     string
 	Type     string
 	Category string
+}
+
+type user struct {
+	username string
+	password []byte
 }
 
 func init() {
@@ -42,12 +49,66 @@ func main() {
 	http.HandleFunc("/pokedex/update", update)
 	http.HandleFunc("/pokedex/delete", delete)
 	http.HandleFunc("/pokedex", pokedex)
+	http.HandleFunc("/login", pokedex)
+	http.HandleFunc("/signup", signup)
 	http.HandleFunc("/", index)
 	http.ListenAndServeTLS(":10443", "cert.pem", "key.pem", nil)
 }
 
 func index(res http.ResponseWriter, req *http.Request) {
+	// if LoggedIn, redirects to My Pokedex, if not request to log in and offer sign up button
+	tpl.ExecuteTemplate(res, "index.gohtml", nil)
+	cookie, err := req.Cookie("session")
+	if err != nil {
+		id := uuid.NewV4()
+		cookie = &http.Cookie{
+			Name:     "session",
+			Value:    id.String(),
+			Secure:   true,
+			HttpOnly: true,
+		}
+		http.SetCookie(res, cookie)
+	}
 	http.Redirect(res, req, "/pokedex", http.StatusSeeOther)
+}
+
+func signup(res http.ResponseWriter, req *http.Request) {
+	if req.Method == http.MethodGet {
+		tpl.ExecuteTemplate(res, "signup.gohtml", nil)
+		return
+	}
+
+	u := req.FormValue("username")
+	p := req.FormValue("password")
+	hashPassword, err := bcrypt.GenerateFromPassword([]byte(p), bcrypt.MinCost)
+	if err != nil {
+		http.Error(res, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	q := `
+		INSERT INTO USERS (USERNAME, PASSWORD)
+		VALUES ($1, $2);
+	`
+	result, err := db.Exec(q, u, hashPassword)
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
+		return
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		http.Error(res, err.Error(), http.StatusForbidden)
+		return
+
+	}
+	if rowsAffected > 0 {
+		tpl.ExecuteTemplate(res, "signup.gohtml", "Account creation successful")
+		return
+	} else {
+		res.Write([]byte("something went wrong."))
+
+	}
+
 }
 
 func create(res http.ResponseWriter, req *http.Request) {
