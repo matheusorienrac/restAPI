@@ -77,17 +77,18 @@ func login(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	cookie, err := req.Cookie("session")
+	// if there is no cookie, means we have to create a session
+	_, err := req.Cookie("session")
 	if err != nil {
 		id := uuid.NewV4()
-		cookie = &http.Cookie{
+		cookie := &http.Cookie{
 			Name:     "session",
 			Value:    id.String(),
 			Secure:   true,
 			HttpOnly: true,
 		}
 		http.SetCookie(res, cookie)
-		_, err = db.Exec("INSERT INTO SESSIONS(sid, username) VALUES ($1, $2)")
+		_, err = db.Exec("INSERT INTO SESSIONS(sid, username) VALUES ($1, $2)", cookie.Value, cookie.Name)
 		if err != nil {
 			http.Error(res, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
@@ -98,19 +99,21 @@ func login(res http.ResponseWriter, req *http.Request) {
 }
 
 func logout(res http.ResponseWriter, req *http.Request) {
-	cookie, _ := req.Cookie("session")
-
-	// delete session from session table
-	_, err := db.Exec("DELETE FROM SESSIONS WHERE SID = $1", cookie.Value)
-	if err != nil {
-		http.Error(res, err.Error(), http.StatusInternalServerError)
+	cookie, err := req.Cookie("session")
+	// means we have a cookie, so we should delete it
+	if err == nil {
+		// delete session from session table
+		_, err := db.Exec("DELETE FROM SESSIONS WHERE SID = $1", cookie.Value)
+		if err != nil {
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+		}
+		// delete cookie
+		cookie = &http.Cookie{
+			Name:   "session",
+			Value:  "",
+			MaxAge: -1,
+		}
+		http.SetCookie(res, cookie)
 	}
-	// delete cookie
-	cookie = &http.Cookie{
-		Name:   "session",
-		Value:  "",
-		MaxAge: -1,
-	}
-	http.SetCookie(res, cookie)
-	http.Redirect(res, req, "/index", http.StatusSeeOther)
+	http.Redirect(res, req, "/", http.StatusSeeOther)
 }
