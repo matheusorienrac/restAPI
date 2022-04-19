@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io/ioutil"
 	"net/http"
 	"strconv"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
@@ -23,18 +23,9 @@ type Pokemon struct {
 	Category string
 }
 
-type user struct {
-	username string
-	password []byte
-}
-
 func init() {
 	tpl = template.Must(template.ParseGlob("templates/*.gohtml"))
-	postgreConnString, err := ioutil.ReadFile("postgreConnString")
-	if err != nil {
-		panic(err)
-	}
-	db, err = sql.Open("postgres", string(postgreConnString))
+	db, err = sql.Open("postgres", "postgres://postgres:password@localhost:5432/pokedex?sslmode=disable")
 	if err != nil {
 		panic(err)
 	}
@@ -42,11 +33,8 @@ func init() {
 }
 
 func main() {
-	http.HandleFunc("/pokedex/create", create)
-	http.HandleFunc("/pokedex/read", read)
-	http.HandleFunc("/pokedex/update", update)
-	http.HandleFunc("/pokedex/delete", delete)
 	http.HandleFunc("/pokedex", pokedex)
+	http.HandleFunc("/pokedex/", singlePokemon)
 	http.HandleFunc("/login", login)
 	http.HandleFunc("/logout", logout)
 	http.HandleFunc("/signup", signup)
@@ -63,147 +51,151 @@ func index(res http.ResponseWriter, req *http.Request) {
 	tpl.ExecuteTemplate(res, "index.gohtml", nil)
 }
 
-func create(res http.ResponseWriter, req *http.Request) {
-	if req.Method != "POST" {
-		tpl.ExecuteTemplate(res, "create.gohtml", nil)
-		return
-	}
-	ID_int, ID_interr := strconv.Atoi(req.FormValue("ID"))
-
-	new_pkmn := Pokemon{
-		ID:       ID_int,
-		Name:     req.FormValue("Name"),
-		Type:     req.FormValue("Type"),
-		Category: req.FormValue("Category"),
-	}
-
-	// validate form values
-	if ID_interr != nil || new_pkmn.Name == "" || new_pkmn.Type == "" || new_pkmn.Category == "" {
-		http.Error(res, http.StatusText(400), http.StatusBadRequest)
-		return
-	}
-
-	q := `
-		INSERT INTO POKEMONS(id, name, type, category)
-		VALUES($1,$2,$3,$4);
-		`
-	_, err = db.Exec(q, new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category)
-	if err != nil {
-		http.Error(res, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		res.Write([]byte(err.Error()))
-		return
-	} else {
-		res.Write([]byte("New record added succesfully."))
-		res.Write([]byte(fmt.Sprintf("ID: %d, Name: %s, Type: %s, Category: %s", new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category)))
-	}
-
-}
-
-func read(res http.ResponseWriter, req *http.Request) {
-	if req.Method != "GET" {
-		http.Error(res, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-		return
-	}
-
-	pkmn_id := req.FormValue("ID")
-	row := db.QueryRow("SELECT * FROM pokemons WHERE id = $1", pkmn_id)
-	pkmn := Pokemon{}
-	err = row.Scan(&pkmn.ID, &pkmn.Name, &pkmn.Type, &pkmn.Category)
-	if err != nil {
-		http.Error(res, http.StatusText(500), 500)
-	}
-	res.Header().Set("Content-Type", "application/json")
-	err = json.NewEncoder(res).Encode(pkmn)
-	if err != nil {
-		http.Error(res, http.StatusText(500), 500)
-	}
-}
-
-func update(res http.ResponseWriter, req *http.Request) {
-	if req.Method != "POST" {
-		tpl.ExecuteTemplate(res, "update.gohtml", nil)
-		return
-	}
-
-	ID_int, ID_interr := strconv.Atoi(req.FormValue("ID"))
-
-	new_pkmn := Pokemon{
-		ID:       ID_int,
-		Name:     req.FormValue("Name"),
-		Type:     req.FormValue("Type"),
-		Category: req.FormValue("Category"),
-	}
-
-	// validate form values
-	if ID_interr != nil || new_pkmn.Name == "" || new_pkmn.Type == "" || new_pkmn.Category == "" {
-		http.Error(res, http.StatusText(400), http.StatusBadRequest)
-		return
-	}
-	q := `
-		UPDATE pokemons SET ID = $1, Name=$2, Type=$3, Category=$4 WHERE ID=$1;
-		`
-	result, err := db.Exec(q, new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category)
-	if err != nil {
-		panic(err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		panic(err)
-	} else if rows > 0 {
-		res.Write([]byte("Row updated successfully."))
-		fmt.Println("redirected to /pokedex")
-		http.Redirect(res, req, "/pokedex", http.StatusSeeOther)
-	} else {
-		res.Write([]byte("No rows were affected."))
-	}
-	return
-
-}
-
-func delete(res http.ResponseWriter, req *http.Request) {
-	if req.Method != "POST" {
-		tpl.ExecuteTemplate(res, "delete.gohtml", nil)
-		return
-	}
-
-	idToDelete := req.FormValue("ID")
-	q := `
-		DELETE FROM pokemons
-		WHERE ID = $1;
-	`
-	result, err := db.Exec(q, idToDelete)
-	if err != nil {
-		panic(err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		panic(err)
-	} else if rows > 0 {
-		http.Redirect(res, req, "/pokedex", http.StatusSeeOther)
-	} else {
-		res.Write([]byte("No rows were affected. Id doesn't exist."))
-	}
-	return
-
-}
 func pokedex(res http.ResponseWriter, req *http.Request) {
-	rows, err := db.Query("SELECT * FROM pokemons ORDER BY ID;")
-	if err != nil {
-		http.Error(res, http.StatusText(500), 500)
+	switch req.Method {
+	case http.MethodGet:
+		rows, err := db.Query("SELECT * FROM pokemons ORDER BY ID;")
+		if err != nil {
+			fmt.Println("caceta meu 1")
+			http.Error(res, err.Error(), 500)
+			return
+		}
+		defer rows.Close()
+		pkmns := make([]Pokemon, 0)
+		for rows.Next() {
+			pkmn := Pokemon{}
+			err := rows.Scan(&pkmn.ID, &pkmn.Name, &pkmn.Type, &pkmn.Category)
+			if err != nil {
+				panic(err)
+			}
+			pkmns = append(pkmns, pkmn)
+		}
+		if err = rows.Err(); err != nil {
+			fmt.Println("caceta meu")
+			panic(err)
+		}
+		res.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(res).Encode(pkmns)
+		if err != nil {
+			http.Error(res, http.StatusText(500), 500)
+		}
+		return
+	case http.MethodPost:
+		ID_int, ID_interr := strconv.Atoi(req.FormValue("ID"))
+		new_pkmn := Pokemon{
+			ID:       ID_int,
+			Name:     req.FormValue("Name"),
+			Type:     req.FormValue("Type"),
+			Category: req.FormValue("Category"),
+		}
+
+		// multipart/form data curls also add a boundary string to the header, so if we dont do it like this we get an error
+		if ct := req.Header.Get("content-type"); !strings.Contains(ct, "multipart/form-data") {
+			res.WriteHeader(http.StatusUnsupportedMediaType)
+			res.Write([]byte(fmt.Sprintf("need content-type 'multipart/form-data', but got '%s'", ct)))
+			return
+		}
+		// validate form values
+		if ID_interr != nil || new_pkmn.Name == "" || new_pkmn.Type == "" || new_pkmn.Category == "" {
+			http.Error(res, http.StatusText(400), http.StatusBadRequest)
+			return
+		}
+		q := `
+			INSERT INTO POKEMONS(id, name, type, category)
+			VALUES($1,$2,$3,$4);
+			`
+		_, err = db.Exec(q, new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category)
+		if err != nil {
+			http.Error(res, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			res.Write([]byte(err.Error()))
+			return
+		} else {
+			res.Write([]byte("New record added succesfully."))
+			res.Write([]byte(fmt.Sprintf("ID: %d, Name: %s, Type: %s, Category: %s", new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category)))
+		}
 	}
-	defer rows.Close()
-	pkmns := make([]Pokemon, 0)
-	for rows.Next() {
+
+}
+
+func singlePokemon(res http.ResponseWriter, req *http.Request) {
+	parts := strings.Split(req.URL.String(), "/")
+	if len(parts) != 3 {
+		res.WriteHeader(http.StatusNotFound)
+		return
+	}
+	switch req.Method {
+	case http.MethodGet:
+		row := db.QueryRow("SELECT * FROM pokemons WHERE id = $1", parts[2])
 		pkmn := Pokemon{}
-		err := rows.Scan(&pkmn.ID, &pkmn.Name, &pkmn.Type, &pkmn.Category)
+		err = row.Scan(&pkmn.ID, &pkmn.Name, &pkmn.Type, &pkmn.Category)
+		if err != nil {
+			http.Error(res, err.Error(), 500)
+			return
+		}
+		res.Header().Set("Content-Type", "application/json")
+		err = json.NewEncoder(res).Encode(pkmn)
+		if err != nil {
+			http.Error(res, http.StatusText(500), 500)
+		}
+		return
+	case http.MethodPut:
+		ID_int, ID_interr := strconv.Atoi(parts[2])
+
+		// multipart/form data curls also add a boundary string to the header, so if we dont do it like this we get an error
+		if ct := req.Header.Get("content-type"); !strings.Contains(ct, "multipart/form-data") {
+			res.WriteHeader(http.StatusUnsupportedMediaType)
+			res.Write([]byte(fmt.Sprintf("need content-type 'multipart/form-data', but got '%s'", ct)))
+			return
+		}
+		new_pkmn := Pokemon{
+			ID:       ID_int,
+			Name:     req.FormValue("Name"),
+			Type:     req.FormValue("Type"),
+			Category: req.FormValue("Category"),
+		}
+
+		// validate form values
+		if ID_interr != nil || new_pkmn.Name == "" || new_pkmn.Type == "" || new_pkmn.Category == "" {
+			http.Error(res, http.StatusText(400), http.StatusBadRequest)
+			return
+		}
+		q := `
+			UPDATE pokemons SET Name=$1, Type=$2, Category=$3 WHERE ID=$4;
+			`
+		result, err := db.Exec(q, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category, new_pkmn.ID)
 		if err != nil {
 			panic(err)
 		}
-		pkmns = append(pkmns, pkmn)
+		rows, err := result.RowsAffected()
+		if err != nil {
+			panic(err)
+		} else if rows > 0 {
+			res.Write([]byte("Row updated successfully."))
+		} else {
+			res.Write([]byte("No rows were affected."))
+		}
+		return
+	case http.MethodDelete:
+		q := `
+			DELETE FROM pokemons
+			WHERE ID = $1;
+		`
+		result, err := db.Exec(q, parts[2])
+		if err != nil {
+			panic(err)
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			panic(err)
+		} else if rows > 0 {
+			res.Write([]byte("Pokemon ID:" + parts[2] + " Deleted Sucessfully"))
+		} else {
+			res.Write([]byte("No rows were affected. Id doesn't exist."))
+		}
+		return
+	default:
+		http.Error(res, "Method not supported", http.StatusMethodNotAllowed)
+		return
 	}
-	if err = rows.Err(); err != nil {
-		panic(err)
-	}
-	tpl.ExecuteTemplate(res, "pokedex.gohtml", pkmns)
 
 }
