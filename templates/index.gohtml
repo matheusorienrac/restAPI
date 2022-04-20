@@ -31,14 +31,12 @@
     </style>
 </head>
 <body>
-<h1>Log in to access your Pokedex!</h1>
-<form method="post" action="/login">
-    <input type="text" name="username" placeholder="username" required autofocus>
-    <input type="text" name="password" placeholder="password" required>
-    <input type="submit">
-</form>
-<p><b>{{.}}</b></p>
-<h2><a href="/signup">sign up</a></h2>
+<h1>Basic Restful API</h1>
+<h1>To get all pokemons in your pokedex: GET /pokedex</h1>
+<h1>To add a pokemon into your pokedex: POST /pokedex</h1>
+<h1>To get one specific pokemon: GET /pokedex/id</h1>
+<h1>To update a pokemon in your pokedex: PUT /pokedex/id</h1>
+<h1>To delete a pokemon from your pokedex: DELETE /pokedex</h1>
 </body>
 </html>
 

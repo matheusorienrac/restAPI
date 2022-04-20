@@ -36,19 +36,11 @@ func init() {
 func main() {
 	http.HandleFunc("/pokedex", pokedex)
 	http.HandleFunc("/pokedex/", singlePokemon)
-	http.HandleFunc("/login", login)
-	http.HandleFunc("/logout", logout)
-	http.HandleFunc("/signup", signup)
 	http.HandleFunc("/", index)
 	http.ListenAndServeTLS(":10443", "cert.pem", "key.pem", nil)
 }
 
 func index(res http.ResponseWriter, req *http.Request) {
-	// if LoggedIn, redirects to My Pokedex, if not request to log in and offer sign up button
-	if alreadyLoggedIn(req) {
-		http.Redirect(res, req, "/pokedex", http.StatusSeeOther)
-		return
-	}
 	tpl.ExecuteTemplate(res, "index.gohtml", nil)
 }
 
@@ -82,25 +74,35 @@ func pokedex(res http.ResponseWriter, req *http.Request) {
 		}
 		return
 	case http.MethodPost:
-		ID_int, ID_interr := strconv.Atoi(req.FormValue("ID"))
-		new_pkmn := Pokemon{
-			ID:       ID_int,
-			Name:     req.FormValue("Name"),
-			Type:     req.FormValue("Type"),
-			Category: req.FormValue("Category"),
+		if ct := req.Header.Get("content-type"); ct != "application/json" {
+			res.WriteHeader(http.StatusUnsupportedMediaType)
+			res.Write([]byte(fmt.Sprintf("need content-type 'application/json', but got '%s'", ct)))
+			return
 		}
 
-		// multipart/form data curls also add a boundary string to the header, so if we dont do it like this we get an error
-		if ct := req.Header.Get("content-type"); !strings.Contains(ct, "multipart/form-data") {
-			res.WriteHeader(http.StatusUnsupportedMediaType)
-			res.Write([]byte(fmt.Sprintf("need content-type 'multipart/form-data', but got '%s'", ct)))
+		new_pkmn := Pokemon{}
+
+		bodyBytes, err := ioutil.ReadAll(req.Body)
+		defer req.Body.Close()
+		if err != nil {
+			res.WriteHeader(http.StatusInternalServerError)
+			res.Write([]byte(err.Error()))
 			return
 		}
-		// validate form values
-		if ID_interr != nil || new_pkmn.Name == "" || new_pkmn.Type == "" || new_pkmn.Category == "" {
-			http.Error(res, http.StatusText(400), http.StatusBadRequest)
+		//unmarshall will fail if user provides string for ID
+		err = json.Unmarshal(bodyBytes, &new_pkmn)
+		if err != nil {
+			res.WriteHeader(http.StatusBadRequest)
+			res.Write([]byte(err.Error()))
 			return
 		}
+
+		// validate json values
+		if new_pkmn.Name == "" || new_pkmn.Type == "" || new_pkmn.Category == "" {
+			http.Error(res, fmt.Sprintf("%v 2:%v 3:%v 4:%v", new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category), http.StatusBadRequest)
+			return
+		}
+
 		q := `
 			INSERT INTO POKEMONS(id, name, type, category)
 			VALUES($1,$2,$3,$4);
@@ -158,23 +160,23 @@ func singlePokemon(res http.ResponseWriter, req *http.Request) {
 			res.Write([]byte(err.Error()))
 			return
 		}
-
+		fmt.Println(string(bodyBytes))
 		err = json.Unmarshal(bodyBytes, &new_pkmn)
 		if err != nil {
 			res.WriteHeader(http.StatusBadRequest)
 			res.Write([]byte(err.Error()))
 			return
 		}
-
+		fmt.Println(new_pkmn)
 		// validate form values
 		if ID_interr != nil || new_pkmn.Name == "" || new_pkmn.Type == "" || new_pkmn.Category == "" {
 			http.Error(res, fmt.Sprintf("%v 2:%v 3:%v 4:%v", ID_interr, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category), http.StatusBadRequest)
 			return
 		}
 		q := `
-			UPDATE pokemons SET ID=$1, Name=$2 Type=$3, Category=$4 WHERE ID=$5;
+			UPDATE pokemons SET ID=$1, Name=$2, Type=$3, Category=$4 WHERE ID=$5;
 			`
-		result, err := db.Exec(q, new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category, new_pkmn.ID, oldID)
+		result, err := db.Exec(q, new_pkmn.ID, new_pkmn.Name, new_pkmn.Type, new_pkmn.Category, oldID)
 		if err != nil {
 			panic(err)
 		}
