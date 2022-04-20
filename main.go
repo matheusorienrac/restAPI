@@ -49,7 +49,6 @@ func pokedex(res http.ResponseWriter, req *http.Request) {
 	case http.MethodGet:
 		rows, err := db.Query("SELECT * FROM pokemons ORDER BY ID;")
 		if err != nil {
-			fmt.Println("caceta meu 1")
 			http.Error(res, err.Error(), 500)
 			return
 		}
@@ -64,7 +63,6 @@ func pokedex(res http.ResponseWriter, req *http.Request) {
 			pkmns = append(pkmns, pkmn)
 		}
 		if err = rows.Err(); err != nil {
-			fmt.Println("caceta meu")
 			panic(err)
 		}
 		res.Header().Set("Content-Type", "application/json")
@@ -127,6 +125,7 @@ func singlePokemon(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	switch req.Method {
+	// GET
 	case http.MethodGet:
 		row := db.QueryRow("SELECT * FROM pokemons WHERE id = $1", parts[2])
 		pkmn := Pokemon{}
@@ -141,8 +140,7 @@ func singlePokemon(res http.ResponseWriter, req *http.Request) {
 			http.Error(res, http.StatusText(500), 500)
 		}
 		return
-	//
-	// put not working properly
+	// PUT
 	case http.MethodPut:
 		oldID, ID_interr := strconv.Atoi(parts[2])
 		if ct := req.Header.Get("content-type"); ct != "application/json" {
@@ -189,6 +187,7 @@ func singlePokemon(res http.ResponseWriter, req *http.Request) {
 			res.Write([]byte("No rows were affected."))
 		}
 		return
+	// DELETE
 	case http.MethodDelete:
 		q := `
 			DELETE FROM pokemons
@@ -207,6 +206,7 @@ func singlePokemon(res http.ResponseWriter, req *http.Request) {
 			res.Write([]byte("No rows were affected. Id doesn't exist."))
 		}
 		return
+	// ELSE
 	default:
 		http.Error(res, "Method not supported", http.StatusMethodNotAllowed)
 		return
